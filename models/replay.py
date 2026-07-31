@@ -106,6 +106,7 @@ class Replay(BaseLearner):
         else:
             self.build_rehearsal_memory(data_manager, self.samples_per_class, self.subset_indices)
 
+        if len(self._multiple_gpus) > 1:
             self._network = self._network.module
 
     def _train(self, train_loader, test_loader):

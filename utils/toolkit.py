@@ -37,11 +37,19 @@ def clear_bwt():
 
 
 def create_bwt_matrix():
-    bwt = np.zeros(10)
-    acc_array = np.zeros((10,10), dtype=int)
-    acc_array[np.tril_indices(10, k=0)] = acc_matrix
+    # acc_matrix holds the lower triangle of the task-accuracy matrix, appended
+    # row by row (task t contributes t+1 grouped accuracies), so infer the task
+    # count instead of upstream's hardcoded 10.
+    n_entries = len(acc_matrix)
+    n_tasks = int((np.sqrt(8 * n_entries + 1) - 1) / 2)
+    if n_tasks < 2 or n_tasks * (n_tasks + 1) // 2 != n_entries:
+        print("BWT: skipped (acc_matrix has {} entries, not triangular)".format(n_entries))
+        return
+    bwt = np.zeros(n_tasks)
+    acc_array = np.zeros((n_tasks, n_tasks))
+    acc_array[np.tril_indices(n_tasks, k=0)] = acc_matrix
 
-    for task_id in range(1, 10):
+    for task_id in range(1, n_tasks):
         for t in range(task_id):
             bwt[task_id] += (acc_array[task_id, t] - acc_array[t, t]) / task_id
 

@@ -74,11 +74,18 @@ class DataManager(object):
                 )
 
             if subset is not None:
-                idx = idx - 10 * cur_task
-                subset = subset[(int(self.fraction * 500)) * idx  : (int(self.fraction * 500)) * (idx + 1)]
-                subset = [x-(500*idx) for x in subset]
-                class_data = [class_data[i] for i in subset]
-                class_targets = [class_targets[i] for i in subset]
+                # `subset` holds indices into the current task's train set, which is
+                # the per-class blocks of the task's classes concatenated in class
+                # order. Locate this class's block by label counts instead of the
+                # upstream hardcoded CIFAR100 arithmetic (500/class, 10 classes/task).
+                task_low = sum(self._increments[:cur_task])
+                start = int(
+                    np.sum([np.sum(self._train_targets == c) for c in range(task_low, idx)])
+                )
+                n_cls = int(np.sum(self._train_targets == idx))
+                sel = [s - start for s in subset if start <= s < start + n_cls]
+                class_data = [class_data[i] for i in sel]
+                class_targets = [class_targets[i] for i in sel]
 
             data.append(class_data)
             targets.append(class_targets)

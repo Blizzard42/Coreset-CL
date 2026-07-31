@@ -16,7 +16,7 @@ def train(args):
         args["seed"] = seed
         args["device"] = device
         # Update the fraction parameter in args
-        fractions = [0.1, 0.2, 0.5, 0.8, 0.9]
+        fractions = args.get("fractions", [0.1, 0.2, 0.5, 0.8, 0.9])
         for fraction in fractions:
             args_copy = copy.deepcopy(args)  # Make a copy to avoid modifying the original args
             args_copy["fraction"] = fraction
