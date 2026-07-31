@@ -6,6 +6,11 @@ optimizer_choices = ["NaiveGreedy", "LazyGreedy", "StochasticGreedy", "Approxima
 class optimizer(object):
     def __init__(self, args, index, budget:int, already_selected=[]):
         self.args = args
+        # DeepCore passes an argparse Namespace; the Coreset-CL harness passes
+        # a dict -- accept both (the upstream repo's adapted copy of this file
+        # was never uploaded).
+        self.print_freq = (args.get("print_freq", 20) if isinstance(args, dict)
+                           else getattr(args, "print_freq", 20))
         self.index = index
 
         if budget <= 0 or budget > index.__len__():
@@ -29,7 +34,7 @@ class NaiveGreedy(optimizer):
 
         greedy_gain = np.zeros(len(self.index))
         for i in range(sum(selected), self.budget):
-            if i % self.args.print_freq == 0:
+            if i % self.print_freq == 0:
                 print("| Selecting [%3d/%3d]" % (i + 1, self.budget))
             greedy_gain[~selected] = gain_function(~selected, selected, **kwargs)
             current_selection = greedy_gain.argmax()
@@ -56,7 +61,7 @@ class LazyGreedy(optimizer):
         greedy_gain[selected] = -np.inf
 
         for i in range(sum(selected), self.budget):
-            if i % self.args.print_freq == 0:
+            if i % self.print_freq == 0:
                 print("| Selecting [%3d/%3d]" % (i + 1, self.budget))
             best_gain = -np.inf
             last_max_element = -1
@@ -95,7 +100,7 @@ class StochasticGreedy(optimizer):
         greedy_gain = np.zeros(len(self.index))
         all_idx = np.arange(self.n)
         for i in range(sum(selected), self.budget):
-            if i % self.args.print_freq == 0:
+            if i % self.print_freq == 0:
                 print("| Selecting [%3d/%3d]" % (i + 1, self.budget))
 
             # Uniformly select a subset from unselected samples with size sample_size
@@ -130,7 +135,7 @@ class ApproximateLazyGreedy(optimizer):
         greedy_gain[selected] = -np.inf
 
         for i in range(sum(selected), self.budget):
-            if i % self.args.print_freq == 0:
+            if i % self.print_freq == 0:
                 print("| Selecting [%3d/%3d]" % (i + 1, self.budget))
             while True:
                 cur_max_element = greedy_gain.argmax()
