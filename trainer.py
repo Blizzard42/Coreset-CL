@@ -3,6 +3,7 @@ import logging
 import copy
 import torch
 from utils import factory
+from utils import runlog
 from utils.data_manager import DataManager
 from utils.toolkit import count_parameters, create_bwt_matrix, clear_bwt
 import os
@@ -57,9 +58,12 @@ def _train(args):
         args["seed"],
         args["init_cls"],
         args["increment"],
-        args["fraction"]
+        args["fraction"],
+        no_augment=args.get("no_augment", False),
     )
     model = factory.get_model(args["model_name"], args)
+    runlog.start(args, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "runlogs"))
 
     cnn_curve, nme_curve = {"top1": [], "top5": []}, {"top1": [], "top5": []}
     for task in range(data_manager.nb_tasks):
@@ -70,6 +74,9 @@ def _train(args):
         model.incremental_train(data_manager)
         cnn_accy, nme_accy = model.eval_task()
         model.after_task()
+        runlog.log_task_eval(task, cnn_accy["top1"],
+                             None if nme_accy is None else nme_accy["top1"],
+                             cnn_accy["grouped"])
 
         if nme_accy is not None:
             logging.info("CNN: {}".format(cnn_accy["grouped"]))
@@ -95,6 +102,8 @@ def _train(args):
             if task == data_manager.nb_tasks-1:
                 create_bwt_matrix()
                 clear_bwt()
+                p = runlog.finish()
+                logging.info("runlog: {}".format(p))
         else:
             logging.info("No NME accuracy.")
             logging.info("CNN: {}".format(cnn_accy["grouped"]))
@@ -111,8 +120,10 @@ def _train(args):
             if task == data_manager.nb_tasks-1:
                 create_bwt_matrix()
                 clear_bwt()
+                p = runlog.finish()
+                logging.info("runlog: {}".format(p))
 
-    
+
 def _set_device(args):
     device_type = args["device"]
     gpus = []

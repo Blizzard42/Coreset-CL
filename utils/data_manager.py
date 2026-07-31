@@ -7,8 +7,14 @@ from utils.data import iCIFAR10, iCIFAR100
 from tqdm import tqdm
 
 class DataManager(object):
-    def __init__(self, dataset_name, shuffle, seed, init_cls, increment,fraction):
+    def __init__(self, dataset_name, shuffle, seed, init_cls, increment, fraction,
+                 no_augment=False):
         self.fraction= fraction
+        # no_augment: mode="train" datasets get the clean test-style transform.
+        # Required for the MLP backbones + distillation selection methods, whose
+        # surrogate math needs selection-time and train-time representations to
+        # be IDENTICAL (e_43 protocol also trains without augmentation).
+        self.no_augment = bool(no_augment)
         self.dataset_name = dataset_name
         self._setup_data(dataset_name, shuffle, seed)
         assert init_cls <= len(self._class_order), "No enough classes."
@@ -48,7 +54,10 @@ class DataManager(object):
             raise ValueError("Unknown data source {}.".format(source))
 
         if mode == "train":
-            trsf = transforms.Compose([*self._train_trsf, *self._common_trsf])
+            if self.no_augment:
+                trsf = transforms.Compose([*self._test_trsf, *self._common_trsf])
+            else:
+                trsf = transforms.Compose([*self._train_trsf, *self._common_trsf])
         elif mode == "flip":
             trsf = transforms.Compose(
                 [
@@ -162,7 +171,10 @@ class DataManager(object):
             raise ValueError("Unknown data source {}.".format(source))
 
         if mode == "train":
-            trsf = transforms.Compose([*self._train_trsf, *self._common_trsf])
+            if self.no_augment:
+                trsf = transforms.Compose([*self._test_trsf, *self._common_trsf])
+            else:
+                trsf = transforms.Compose([*self._train_trsf, *self._common_trsf])
         elif mode == "test":
             trsf = transforms.Compose([*self._test_trsf, *self._common_trsf])
         else:
@@ -265,6 +277,31 @@ class DataManager(object):
     def getlen(self, index):
         y = self._train_targets
         return np.sum(np.where(y == index))
+
+
+class SyntheticDataset(Dataset):
+    """Distilled (x, y) points, already in the trained representation (i.e. the
+    values a real image would have AFTER ToTensor+Normalize).  No transform is
+    applied -- representation equality with real data therefore requires the
+    no_augment pipeline.  Yields (idx, image_tensor, label) like DummyDataset.
+
+    labels are hard int64 class indices (v1: learned soft labels are hardened by
+    the selection method; soft-label MSE training is a future knob).
+    soft_labels, if given, ride along for later use ([m, C_task] float)."""
+
+    def __init__(self, X, labels, image_shape=(3, 32, 32), soft_labels=None):
+        import torch as _torch
+        X = _torch.as_tensor(X, dtype=_torch.float32).reshape(-1, *image_shape)
+        self.X = X
+        self.labels = np.asarray(labels, dtype=np.int64)
+        self.soft_labels = soft_labels
+        assert len(self.X) == len(self.labels), "Data size error!"
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return idx, self.X[idx], int(self.labels[idx])
 
 
 class DummyDataset(Dataset):

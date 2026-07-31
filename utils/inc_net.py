@@ -20,7 +20,13 @@ from convs.recorder import EmbeddingRecorder
 
 def get_convnet(args, pretrained=False):
     name = args["convnet_type"].lower()
-    if name == "resnet32":
+    if name == "zmlp":
+        from convs.mlp import zmlp as make_zmlp
+        return make_zmlp(args)
+    elif name == "relu_mlp":
+        from convs.mlp import relu_mlp as make_relu_mlp
+        return make_relu_mlp(args)
+    elif name == "resnet32":
         return resnet32()
     elif name == "resnet18":
         return resnet18(pretrained=pretrained,args=args)

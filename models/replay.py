@@ -10,6 +10,8 @@ from torch.utils.data import DataLoader, ConcatDataset
 from models.base import BaseLearner
 from utils.inc_net import IncrementalNet
 from utils.toolkit import target2onehot, tensor2numpy
+from utils.data_manager import SyntheticDataset
+from utils import runlog
 
 EPSILON = 1e-8
 
@@ -65,7 +67,16 @@ class Replay(BaseLearner):
                                                   self.args["seed"],
                                                   self._device, self._cur_task, **selection_args)
             subset = selection_method.select()
-            dst_subset = torch.utils.data.Subset(train_dataset, subset["indices"])
+            if subset.get("record") is not None:
+                runlog.log_distill(subset["record"])
+            if subset.get("synthetic") is not None:
+                # distilled (x, y) points replace the real-subset dataset; the
+                # rehearsal memory still comes from REAL rows (the method's
+                # uniform-init indices -- the same handicap as a Random coreset)
+                X_syn, y_syn, y_soft = subset["synthetic"]
+                dst_subset = SyntheticDataset(X_syn, y_syn, soft_labels=y_soft)
+            else:
+                dst_subset = torch.utils.data.Subset(train_dataset, subset["indices"])
 
             self.subset_indices = subset["indices"]
             if self._cur_task > 0:
@@ -109,30 +120,37 @@ class Replay(BaseLearner):
         if len(self._multiple_gpus) > 1:
             self._network = self._network.module
 
+    def _make_opt_sched(self, lr, wd, milestones, gamma, epochs):
+        """Optimizer/scheduler with config knobs for the MLP backbones:
+        "optimizer": "sgd" (default) | "adamw"; "scheduler": "milestones"
+        (default) | "cosine".  Defaults reproduce upstream exactly."""
+        if self.args.get("optimizer", "sgd") == "adamw":
+            optimizer = optim.AdamW(self._network.parameters(), lr=lr,
+                                    weight_decay=wd)
+        else:
+            optimizer = optim.SGD(self._network.parameters(), lr=lr,
+                                  momentum=0.9, weight_decay=wd)
+        if self.args.get("scheduler", "milestones") == "cosine":
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer,
+                                                             T_max=epochs)
+        else:
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                optimizer=optimizer, milestones=milestones, gamma=gamma)
+        return optimizer, scheduler
+
     def _train(self, train_loader, test_loader):
         self._network.to(self._device)
         if self._cur_task == 0:
-            optimizer = optim.SGD(
-                self._network.parameters(),
-                momentum=0.9,
-                lr=self.args["init_lr"],
-                weight_decay=self.args["init_weight_decay"],
-            )
-            scheduler = optim.lr_scheduler.MultiStepLR(
-                optimizer=optimizer, milestones=self.args["init_milestones"], gamma=self.args["init_lr_decay"]
-
-            )
+            optimizer, scheduler = self._make_opt_sched(
+                self.args["init_lr"], self.args["init_weight_decay"],
+                self.args["init_milestones"], self.args["init_lr_decay"],
+                self.args["init_epoch"])
             self._init_train(train_loader, test_loader, optimizer, scheduler)
         else:
-            optimizer = optim.SGD(
-                self._network.parameters(),
-                lr=self.args["lrate"],
-                momentum=0.9,
-                weight_decay=self.args["weight_decay"],
-            )  # 1e-5
-            scheduler = optim.lr_scheduler.MultiStepLR(
-                optimizer=optimizer, milestones=self.args["milestones"], gamma=self.args["lrate_decay"]
-            )
+            optimizer, scheduler = self._make_opt_sched(
+                self.args["lrate"], self.args["weight_decay"],
+                self.args["milestones"], self.args["lrate_decay"],
+                self.args["epochs"])
             self._update_representation(train_loader, test_loader, optimizer, scheduler)
 
     def _init_train(self, train_loader, test_loader, optimizer, scheduler):
@@ -149,6 +167,9 @@ class Replay(BaseLearner):
                 loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
                 loss.backward()
+                if self.args.get("clip", 0):
+                    nn.utils.clip_grad_norm_(self._network.parameters(),
+                                             self.args["clip"])
                 optimizer.step()
                 losses += loss.item()
 
@@ -159,7 +180,7 @@ class Replay(BaseLearner):
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
 
-            if epoch % 5 == 0:
+            if self.args.get("dense_eval", False) or epoch % 5 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
@@ -170,6 +191,7 @@ class Replay(BaseLearner):
                     test_acc,
                 )
             else:
+                test_acc = None
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
                     self._cur_task,
                     epoch + 1,
@@ -177,6 +199,8 @@ class Replay(BaseLearner):
                     losses / len(train_loader),
                     train_acc,
                 )
+            runlog.log_epoch(self._cur_task, epoch + 1, "init",
+                             losses / len(train_loader), train_acc, test_acc)
 
             prog_bar.set_description(info)
 
@@ -198,6 +222,9 @@ class Replay(BaseLearner):
 
                 optimizer.zero_grad()
                 loss.backward()
+                if self.args.get("clip", 0):
+                    nn.utils.clip_grad_norm_(self._network.parameters(),
+                                             self.args["clip"])
                 optimizer.step()
                 losses += loss.item()
 
@@ -208,7 +235,7 @@ class Replay(BaseLearner):
 
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
-            if epoch % 5 == 0:
+            if self.args.get("dense_eval", False) or epoch % 5 == 0:
                 test_acc = self._compute_accuracy(self._network, test_loader)
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
                     self._cur_task,
@@ -219,6 +246,7 @@ class Replay(BaseLearner):
                     test_acc,
                 )
             else:
+                test_acc = None
                 info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
                     self._cur_task,
                     epoch + 1,
@@ -226,5 +254,7 @@ class Replay(BaseLearner):
                     losses / len(train_loader),
                     train_acc,
                 )
+            runlog.log_epoch(self._cur_task, epoch + 1, "inc",
+                             losses / len(train_loader), train_acc, test_acc)
             prog_bar.set_description(info)
         logging.info(info)

@@ -1,0 +1,69 @@
+{
+    "prefix": "smokemlp",
+    "dataset": "cifar10",
+    "memory_size": 500,
+    "memory_per_class": 50,
+    "fixed_memory": true,
+    "shuffle": true,
+    "init_cls": 2,
+    "increment": 2,
+    "model_name": "replay",
+    "convnet_type": "zmlp",
+    "device": [
+        "0"
+    ],
+    "seed": [
+        1993
+    ],
+    "init_epoch": 2,
+    "init_lr": 0.001,
+    "init_milestones": [
+        60
+    ],
+    "init_lr_decay": 0.1,
+    "init_weight_decay": 0.0,
+    "epochs": 2,
+    "lrate": 0.001,
+    "milestones": [
+        60
+    ],
+    "lrate_decay": 0.1,
+    "batch_size": 128,
+    "weight_decay": 0.0,
+    "num_workers": 2,
+    "T": 2,
+    "optimizer": "adamw",
+    "scheduler": "cosine",
+    "clip": 1.0,
+    "no_augment": true,
+    "dense_eval": true,
+    "mlp_depth": 2,
+    "backbone_dropout": 0.0,
+    "fractions": [
+        0.05
+    ],
+    "distill_L": 2,
+    "distill_fit_steps": 100,
+    "distill_fit_lr": 0.001,
+    "distill_fit_bs": 4096,
+    "distill_eval_every": 50,
+    "distill_lambda_mv": 0.5,
+    "distill_absolute_mse": false,
+    "distill_n_fit": 1000,
+    "selection_epochs": 1,
+    "uncertainty": "Entropy",
+    "balance": true,
+    "submodular_greedy": "LazyGreedy",
+    "submodular": "GraphCut",
+    "selection": "submodular",
+    "fraction": 0.05,
+    "selection_lr": 0.1,
+    "selection_momentum": 0.9,
+    "selection_weight_decay": 0.0005,
+    "selection_nesterov": true,
+    "selection_batch": 128,
+    "workers": 2,
+    "selection_optimizer": "SGD",
+    "print_freq": 20,
+    "selection_method": "Random"
+}
